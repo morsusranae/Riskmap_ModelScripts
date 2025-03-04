@@ -1,0 +1,118 @@
+---
+title: "ModelScript_forClayton"
+author: "Louis Jochems"
+date: "2025-03-04"
+output: html_document
+---
+
+```{r packages for riskmap model}
+library(sdm)
+library(dplyr)
+library(plyr)
+library(ggplot2)
+library(terra)
+library(leaflet)
+options("sp_evolution_status" = 2)
+library(sp)
+library(sf)
+library(caret)
+library(pROC)
+
+#setwd("Z:/Riskmap/ForClayton_2025")
+
+sdm_data <- read.csv("Z:/path/to/RiskmapData_forClayton.csv")
+#set path to dataframe 
+```
+
+Before running the model, I first had to filter out erroneous negative water depths and set slightly negative water depths (within -0.5 m margin of error) to zero. This is what the code does in the below chunk: 
+
+```{r negative water depths }
+neg_depths <- sdm_data %>%
+ filter(Monthly_HD < 0)
+#monthly_HD is the mean of monthly high water depths, which I 
+#calculated by taking the mean of daily high water levels across each month 
+#from the nearest gauge station to each point 
+#and then subtracted the underlying elevation to get DEPTH 
+
+# I used High water level vs. mean or low water level because I think that included
+# more positive water depths
+
+#HOWEVER 
+#still a lot of depths within between -0.5 and zero. decided to keep and set those to zero  
+hist(neg_depths$Monthly_HD, breaks = 28)
+
+#filter out any data more -0.5 
+sdm_data <- sdm_data %>% 
+  filter(Monthly_HD > -0.5)
+
+
+#function to set all "slightly" negative depths to 0 
+pos_func <- function(x) {
+  x$Monthly_HD  <- ifelse(x$Monthly_HD < 0, 0, x$Monthly_HD )
+  x$Monthly_MD <- ifelse(x$Monthly_MD < 0, 0, x$Monthly_MD)
+  x$Monthly_LD <- ifelse(x$Monthly_LD < 0, 0, x$Monthly_LD)
+  x$Daily_D <- ifelse(x$Daily_D < 0, 0, x$Daily_D)
+  return(x)
+}
+
+sdm_data <- pos_func(sdm_data) 
+
+hist(sdm_data$Monthly_HD)
+#no more negative depths 
+```
+
+Next, I need to remove all observations with NA values for NDVI. These ended up being most if not all points from 2015. At the time I hadn't checked in GEE whether they had real values. I guess there was a gap in available imagery from Sentinel back then...
+
+```{r remove NA values for NDVI}
+sdm_data16_23 <- sdm_data %>%
+  filter(!is.na(medianNDVI))
+
+range(sdm_data16_23$medianNDVI)
+range(sdm_data16_23$year)
+#no more NAs and no more points from 2015. 
+```
+
+Now onto running models! For context here are the names/explanation of the model variables:
+
+'hyd_bin' = "Hydrocharis binary" 0: EFB Absence, 1: EFB Presence 
+'MeanFetch' = Mean fetch values across all years available. Extracted from nearest pixel to each point 
+'Dist_NearBL' = Distance to nearest boat launch for each point (in m)
+'Dist_NearEFB' = Distance to nearest known EFB presence point (in m)
+'medianVH' = Median monthly* VH polarization value across all Sent 1 images for intersecting pixel to each point 
+'medianVV' = Median monthly VH polarization ""
+'medianVH_VV_ratio' = Median monthly VH_VV ratio "" 
+'medianNDVI' = Median monthly NDVI value across all Sent 2 images for intersecting pixel to each point 
+'medianNDWI' = Median monthly NDWI "" 
+
+*monthly values calculated across images of month in which observation was made 
+
+```{r model with ALL predictors}
+#grid object for variables to include in random forest trees 
+#9 predictor variables total 
+tunegrid <- expand.grid(.mtry = (1:9)) 
+
+
+caret_all <- train(hyd_bin ~ MeanFetch + Dist_NearBL + Dist_NearEFB + 
+                   medianVH + medianVV + medianVH_VV_ratio + 
+                   medianNDVI + medianNDWI + Monthly_HD, 
+                   data = sdm_data16_23,
+                   method = 'rf',
+                   tuneGrid = tunegrid, # 1:9, range of # of variables to include for trees 
+                   trControl = trainControl(method = 'repeatedcv', # Use cross-validation
+                                            number = 5,# 5 folds 
+                                            repeats = 50, # 50 model runs 
+                                            classProbs = T,
+                                            savePredictions = T)
+                   )
+#model runs, but while it does you do get a warning about only two outcomes for response 
+#I think we want regression so that we can get probabilities for EFB habitat 
+#assigned to each pixel, rather than a binary yes/no for predicting EFB habitat 
+
+#for different model metrics 
+summary(caret_all)
+
+#save .RData model object so that we can apply across entire raster composites 
+save(caret_all, file = "/bsuhome/path/to/CaretM_AllPred.RData")
+
+```
+
