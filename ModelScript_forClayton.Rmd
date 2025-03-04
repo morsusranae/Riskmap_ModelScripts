@@ -104,7 +104,8 @@ caret_all <- train(hyd_bin ~ MeanFetch + Dist_NearBL + Dist_NearEFB +
                                             classProbs = T,
                                             savePredictions = T)
                    )
-#model runs, but while it does you do get a warning about only two outcomes for response 
+#model runs, but while it does you get a warning about only two outcomes for response
+#and whether you want a RF classification vs. regression... 
 #I think we want regression so that we can get probabilities for EFB habitat 
 #assigned to each pixel, rather than a binary yes/no for predicting EFB habitat 
 
