@@ -113,7 +113,7 @@ caret_all <- train(hyd_bin ~ MeanFetch + Dist_NearBL + Dist_NearEFB +
 summary(caret_all)
 
 #save .RData model object so that we can apply across entire raster composites 
-save(caret_all, file = "/bsuhome/path/to/CaretM_AllPred.RData")
+save(caret_all, file = "/bsuhome/path/to/CaretM_AllPredictors.RData")
 
 ```
 
